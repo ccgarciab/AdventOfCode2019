@@ -22,4 +22,4 @@ findPath k m = reverse $ f k m
 main = do
      mp <- fmap (foldl flipInsert M.empty . map (splitWithDelim ')') . lines) getContents
      let (youPath, sanPath) = trimDif (findPath "YOU" mp) (findPath "SAN" mp)
-     print $ subtract 2 $ sum $ map length [youPath, sanPath]
+     print $ sum $ map length [youPath, sanPath]
