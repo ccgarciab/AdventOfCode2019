@@ -6,7 +6,7 @@ data Computer = Computer { program :: Program
                          , input   :: [Integer]
                          , output  :: [Integer]
                          , iptr    :: Integer
-                         } deriving (Show)
+                         } deriving (Show, Read)
 
 data Mode = Position | Inmediate deriving (Show, Eq)
 
@@ -43,53 +43,61 @@ parseOp n = (op, modes op, fromIntegral arity)
     op  = n `mod` 100
     arity  = snd $ head $ filter ((== op) . fst) $ [(i, 1) | i<-[3, 4]] ++ 
                                                    [(i, 2) | i<-[5, 6]] ++ 
-                                                   [(i, 3) | i<-[1, 2, 7, 8]] ++
+                                                   [(i, 3) | i<-[1, 2, 7, 8]] ++ 
                                                    [(99, 0)]
     ms  = map f $ drop 2 $ reverse $ show n
     len = arity - (length ms)
     f x
         | x == '0' = Position
         | x == '1' = Inmediate
-    modes x
-        | x `elem` [5, 6] = ms ++ (replicate len Position)
-        | x `elem` [1..8] = ms ++ (replicate (len - 1) Position) ++ [Inmediate]
-        | x == 99         = []
+    modes op'
+        | op' == 4           = if null ms then [Position] else [Inmediate]
+        | op' `elem` [3, 99] = []
+        | op' `elem` [1..8]  = (take 2 $ ms ++ [Position, Position]) ++ [Inmediate]
 
 
-argValues :: Computer -> Integer -> [Mode] -> Maybe [Integer]
-argValues c ar modes = do
-    args <- takeFromProg c ar
-    sequence $ (map f $ zip args modes)
+runOp :: Computer -> Integer -> [Integer] -> [Mode] -> Maybe Computer
+runOp c op args modes = case op of
+    1 -> do
+         (a:b:pos:[]) <- values
+         return $ insertInProg c (a + b) pos
+    2 -> do
+         (a:b:pos:[]) <- values
+         return $ insertInProg c (a * b) pos
+    3 -> do
+         (new_c, val) <- popInput c
+         return $ insertInProg new_c val $ head args
+    4 -> do
+         let [mode] = modes
+         [val]   <- values
+         return $ pushOut c val
+    5 -> do
+         (b:p:[]) <- values
+         return $ c{iptr= if b == 0 then iptr c else p - 3}
+    6 -> do
+         (b:p:[]) <- values
+         return $ c{iptr= if b == 0 then p - 3 else iptr c}
+    7 -> do
+         (a:b:pos:[]) <- values
+         return $ insertInProg c (if a < b  then 1 else 0) pos
+    8 -> do
+         (a:b:pos:[]) <- values
+         return $ insertInProg c (if a == b  then 1 else 0) pos
+    99 -> Just c
+    _  -> Nothing
   where
-    f (a, m)
-        | m == Inmediate = Just a
-        | m == Position  = M.lookup a $ program c
-        | otherwise      = Nothing
-
-
-runOp :: Computer -> Integer -> [Integer] -> Maybe Computer
-runOp c 99 _           = Just c
-runOp c 1 (a:b:pos:[]) = Just $ insertInProg c (a + b) pos
-runOp c 2 (a:b:pos:[]) = Just $ insertInProg c (a * b) pos
-runOp c 3 (pos:[])     = do
-    (pC, val) <- popInput c
-    return $ insertInProg pC val pos
-runOp c 4 (pos:[])     = do
-    val <- M.lookup pos (program c)
-    return $ pushOut c val
-runOp c 5 (b:p:[])     = Just c{iptr= if b == 0 then iptr c else p - 3}
-runOp c 6 (b:p:[])     = Just c{iptr= if b == 0 then p - 3 else iptr c}
-runOp c 7 (a:b:pos:[]) = Just $ insertInProg c (if a < b  then 1 else 0) pos
-runOp c 8 (a:b:pos:[]) = Just $ insertInProg c (if a == b then 1 else 0) pos
-runOp _ _ _            = Nothing
+    select arg mode
+        | mode == Position = M.lookup arg $ program c
+        | otherwise        = Just arg
+    values = sequence $ zipWith select args modes
 
 
 run :: Computer -> Maybe Computer
 run c = do
     rawOp   <- M.lookup (iptr c) (program c)
     let (op, modes, arity) = parseOp rawOp
-    argvals <- argValues c arity modes
-    nextC   <- runOp c op argvals
+    args    <- takeFromProg c arity
+    nextC   <- runOp c op args modes
     case op of
         99 -> Just c
         _  -> run $ nextC{iptr= arity + 1 + (iptr nextC)}
